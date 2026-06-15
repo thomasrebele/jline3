@@ -20,6 +20,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 import org.jline.reader.Candidate;
 import org.jline.reader.EndOfFileException;
@@ -30,12 +31,16 @@ import org.jline.terminal.Terminal;
 import org.jline.terminal.TerminalBuilder;
 import org.jline.terminal.impl.AbstractWindowsTerminal;
 import org.jline.terminal.impl.DumbTerminal;
+import org.jline.terminal.impl.ExternalTerminal;
+import org.jline.terminal.spi.TerminalExt;
+import org.jline.terminal.spi.TerminalProvider;
 import org.jline.utils.AttributedString;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import static org.jline.terminal.impl.AbstractWindowsTerminal.TYPE_WINDOWS_CONEMU;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -212,6 +217,8 @@ public class LineReaderTest {
 
         assertEquals("hello", read1);
         assertEquals("world", read2);
+
+        assertThrows(EndOfFileException.class, lineReader::readLine);
     }
 
     @Test
@@ -224,5 +231,45 @@ public class LineReaderTest {
             String written = out.toString();
             assertEquals("123", written);
         }
+    }
+
+    @Test
+    void testEOFJni() throws IOException {
+        checkEOF("jni");
+    }
+
+    @Test
+    void testEOFExec() throws IOException {
+        checkEOF("exec");
+    }
+
+    void checkEOF(final String providerType) throws IOException {
+        System.setProperty(TerminalBuilder.PROP_PROVIDERS, providerType);
+
+        PipedInputStream in = new PipedInputStream();
+        PipedOutputStream outIn = new PipedOutputStream(in);
+        outIn.write("hello\n".getBytes(StandardCharsets.UTF_8));
+        ByteArrayOutputStream out = new ByteArrayOutputStream(1024);
+
+        try (Terminal terminal = TerminalBuilder.builder().streams(in, out) .build()) {
+            TerminalProvider provider = getProvider(terminal);
+            // test requires jni
+            assertEquals("TerminalProvider[" + providerType + "]", Objects.toString(provider));
+
+
+            LineReader lr = LineReaderBuilder.builder().terminal(terminal).build();
+            assertEquals("hello", lr.readLine());
+            assertThrows(EndOfFileException.class, () -> lr.readLine());
+        }
+    }
+
+    private TerminalProvider getProvider(Terminal terminal) {
+        if (terminal instanceof ExternalTerminal) {
+            return ((ExternalTerminal) terminal).getProvider();
+        }
+        if (terminal instanceof TerminalExt) {
+            return ((TerminalExt) terminal).getProvider();
+        }
+        throw new IllegalStateException("Cannot get provider for " + terminal);
     }
 }
